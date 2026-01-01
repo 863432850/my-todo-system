@@ -110,7 +110,16 @@
 
         const App = () => {
             const [tasks, setTasks] = useState([]);
-            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            const getBeijingToday = () => {
+                return new Intl.DateTimeFormat('zh-Hans-CN', {
+                    timeZone: 'Asia/Shanghai',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                }).format(new Date()).replace(/\//g, '-');
+            };
+            
+            const [selectedDate, setSelectedDate] = useState(getBeijingToday());
             const [filterYear, setFilterYear] = useState('');
             const [filterMonth, setFilterMonth] = useState('');
             const [searchQuery, setSearchQuery] = useState(''); // 新增：全局搜索状态
@@ -208,7 +217,21 @@
 
             const completion = currentTasks.length ? Math.round((currentTasks.filter(t => t.status === 'done').length / currentTasks.length) * 100) : 0;
            /* --- 在 App 组件内部，return 语句之前 --- */
+           // 插入这段北京时间转换逻辑
+           const dateObj = new Date(selectedDate + "T00:00:00+08:00"); 
+           const dayInfo = new Intl.DateTimeFormat('zh-CN', {
+               timeZone: 'Asia/Shanghai',
+               month: 'long',
+               day: 'numeric',
+               weekday: 'long'
+           }).formatToParts(dateObj);
            
+           const getPart = (type) => dayInfo.find(p => p.type === type).value;
+           const displayMonth = getPart('month').replace('月', ''); // 获取纯数字月份
+           const displayDay = getPart('day');
+           const displayWeekday = getPart('weekday');
+		   
+		   
            const exportToMarkdown = () => {
                // 检查当前是否有任务可导出
                if (!currentTasks || currentTasks.length === 0) {
@@ -259,7 +282,7 @@
                 <div className="h-full flex p-5 gap-5 overflow-hidden">
                     {/* 左侧：时间轴与过滤 */}
                     <aside className="w-[320px] glass rounded-[40px] flex flex-col shadow-xl animate-slide overflow-hidden">
-                        <div className="p-3 pb-7">
+                        <div className="p-6 pb-2 bg-gradient-to-b from-white/20 to-transparent">
                             <div className="flex items-center justify-center gap-3 mb-4 group cursor-default">
                                 <div className="w-7 h-7 bg-[#7DCEA0] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20 transition-transform group-hover:rotate-12">
                                     <Icon name="calendar" size={14} />
@@ -297,9 +320,20 @@
                         </div>
 
                         <div className="flex-1 overflow-y-auto custom-scrollbar px-3 space-y-2 pb-2">
-                            <button onClick={() => {setSelectedDate(new Date().toISOString().split('T')[0]); setSearchQuery('');}} className={`w-full px-3 py-3 rounded-[25px] text-left transition-all ${selectedDate === new Date().toISOString().split('T')[0] && !searchQuery ? 'bg-[#ffc369] text-white shadow-xl scale-[1.02]' : 'hover:bg-white/40 text-gray-500'}`}>
-                                <p className="text-[8px] font-black uppercase opacity-60 ">Today</p>
-                                <p className="font-bold text-base">今天</p>
+                            <button 
+                                onClick={() => {setSelectedDate(getBeijingToday()); setSearchQuery('');}} 
+                                className={`w-full p-5 rounded-[30px] text-left transition-all ${
+                                    selectedDate === getBeijingToday() && !searchQuery 
+                                    ? 'bg-[#ffb74b] text-white shadow-xl scale-[1.02]' // 选中时：亮橙色
+                                    : 'bg-white/40 hover:bg-white/60 text-gray-600'    // 未选中时：带有淡淡底色的半透明白
+                                }`}
+                            >
+                                <p className={`text-[10px] font-black uppercase mb-1 ${
+                                    selectedDate === getBeijingToday() && !searchQuery ? 'opacity-70' : 'text-[#FF9F0A]'
+                                }`}>
+                                    Today
+                                </p>
+                                <p className="font-bold text-lg">今天</p>
                             </button>
                             <div className="h-px bg-black/5 mx-6 my-3" />
                             {filteredDates.map(g => (
@@ -336,15 +370,16 @@
 								        ) : (
 								            <>
 								                <div className="flex items-baseline">
-								                    <span className="text-5xl font-black">{new Date(selectedDate).getMonth() + 1}</span>
-								                    <span className="text-xl font-bold ml-1">月</span>
-								                    <span className="text-5xl font-black ml-2">{new Date(selectedDate).getDate()}</span>
-								                    <span className="text-xl font-bold ml-1">日</span>
-								                </div>
-								                {/* 星期紧随其后 */}
-								                <span className="text-xl font-bold text-gray-400">
-								                    {new Date(selectedDate).toLocaleDateString('zh-CN', {weekday: 'long'})}
-								                </span>
+													{/* 使用新定义的 displayMonth 和 displayDay */}
+													<span className="text-5xl font-black">{displayMonth}</span>
+													<span className="text-xl font-bold ml-1">月</span>
+													<span className="text-5xl font-black ml-2">{displayDay}</span>
+													<span className="text-xl font-bold ml-1">日</span>
+												</div>
+												{/* 使用新定义的 displayWeekday */}
+												<span className="text-xl font-bold text-gray-400">
+													{displayWeekday}
+												</span>
 												<div className="flex items-center gap-2 mt-3">
 												    {/* 待办项移动到最后，并采用低饱和度绿色 */}
 												    <div className="px-3 py-1 bg-[#7DCEA0]/10 border border-[#7DCEA0]/20 rounded-full">
@@ -539,12 +574,17 @@ const BoardColumn = ({ title, status, color, tasks, onUpdate, onDelete, onEdit }
                                     <div className="flex items-center gap-1 text-[9px] font-bold text-gray-300 uppercase tracking-tighter">
                                         <Icon name="clock" size={10} />
                                         {(() => {
-                                            const dateObj = new Date(task.created_at || task.date);
-                                            return dateObj.toLocaleString('zh-CN', {
-                                                year: 'numeric', month: '2-digit', day: '2-digit',
-                                                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                            const date = new Date(task.created_at || task.date);
+                                            return new Intl.DateTimeFormat('zh-CN', {
+                                                timeZone: 'Asia/Shanghai',
+                                                year: 'numeric',
+                                                month: '2-digit',
+                                                day: '2-digit',
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit',
                                                 hour12: false
-                                            }).replace(/\//g, '-');
+                                            }).format(date).replace(/\//g, '-');
                                         })()}
                                     </div>
                                     {/* 状态切换按钮 */}
