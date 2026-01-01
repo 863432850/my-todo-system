@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>待办清单TodoList</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2230%22 fill=%22%237DCEA0%22/><path d=%22M30 50L45 65L70 35%22 stroke=%22white%22 stroke-width=%2212%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 fill=%22none%22/></svg>">    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #7DCEA0;
+            --bg-sunset: linear-gradient(135deg, #E3E3E3 0%, #F7E1D7 50%, #D4E2F0 100%);
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-sunset);
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            color: #1c1c1e;
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+        }
+        /* 确保自定义滚动条样式存在 */
+        .custom-scrollbar::-webkit-scrollbar { 
+            width: 6px !important; /* 略微加宽，方便看到 */
+            display: block !important; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb { 
+            background: rgba(177, 177, 177, 0.4); /* 使用青提绿的透明色 */
+            border-radius: 10px; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.03); /* 轨道底色 */
+            border-radius: 10px;
+        }
+        
+.task-card {
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    cursor: grab;
+    position: relative; 
+
+    will-change: transform;
+}
+
+.task-card:hover {
+    transform: translateY(-3px) scale(1.01) !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1) !important;
+    background: white !important;
+    /* 确保 z-index 足够大，超越滚动容器的边界限制 */
+    z-index: 100 !important; 
+    position: relative;
+}
+
+        .drag-over {
+            background: rgba(255, 159, 10, 0.1) !important;
+            border: 2px dashed rgba(255, 159, 10, 0.3) !important;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-slide { animation: slideUp 0.6s ease-out forwards; }
+        
+        .priority-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .priority-high { background-color: #FF3B30; box-shadow: 0 0 8px #FF3B30; }
+        .priority-medium { background-color: #FF9F0A; box-shadow: 0 0 8px #FF9F0A; }
+        .priority-low { background-color: #007AFF; box-shadow: 0 0 8px #007AFF; }
+    </style>
+</head>
+<body>
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        const SUPABASE_URL = 'https://lxuomiimbnterkxzquba.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx4dW9taWltYm50ZXJreHpxdWJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MzYyNDksImV4cCI6MjA4MjUxMjI0OX0.LZOFm_VS0y5UF0vBR8y2y90Wrq_cMmIvggnXL_JM6h0';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const Icon = ({ name, size = 100, className = "" }) => {
+            const icons = {
+                plus: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>,
+                calendar: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>,
+                trash: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>,
+                check: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>,
+                play: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z" /></svg>,
+                clock: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>,
+                chevronRight: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>,
+                download: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>,
+                x: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" /></svg>,
+                edit: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>,
+                search: <svg width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+            };
+            return <span className={`inline-flex items-center justify-center ${className}`}>{icons[name] || null}</span>;
+        };
+
+        const App = () => {
+            const [tasks, setTasks] = useState([]);
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+            const [filterYear, setFilterYear] = useState('');
+            const [filterMonth, setFilterMonth] = useState('');
+            const [searchQuery, setSearchQuery] = useState(''); // 新增：全局搜索状态
+            const [editTask, setEditTask] = useState(null);
+
+            const triggerCelebration = () => {
+                const duration = 1.5 * 1000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+                const random = (min, max) => Math.random() * (max - min) + min;
+                const interval = setInterval(function() {
+                    const timeLeft = animationEnd - Date.now();
+                    if (timeLeft <= 0) return clearInterval(interval);
+                    const particleCount = 50 * (timeLeft / duration);
+                    confetti({ ...defaults, particleCount, origin: { x: random(0.1, 0.3), y: Math.random() - 0.2 } });
+                    confetti({ ...defaults, particleCount, origin: { x: random(0.7, 0.9), y: Math.random() - 0.2 } });
+                }, 250);
+            };
+
+            useEffect(() => { fetchTasks(); }, []);
+
+            const fetchTasks = async () => {
+                const { data, error } = await supabaseClient.from('tasks').select('*').order('created_at', { ascending: false });
+                if (error) {
+                    const saved = localStorage.getItem('lumina_complete_v1');
+                    if (saved) setTasks(JSON.parse(saved));
+                } else if (data) {
+                    setTasks(data);
+                    localStorage.setItem('lumina_complete_v1', JSON.stringify(data));
+                }
+            };
+
+            const addTask = async (title, desc, priority) => {
+                const tempId = 'temp-' + Date.now();
+                const optimisticTask = { id: tempId, title, description: desc, priority, status: 'todo', date: selectedDate, created_at: new Date().toISOString() };
+                setTasks(prev => [optimisticTask, ...prev]);
+                const { data, error } = await supabaseClient.from('tasks').insert([{ title, description: desc, priority, status: 'todo', date: selectedDate }]).select();
+                if (error) {
+                    alert('保存失败: ' + error.message);
+                    setTasks(prev => prev.filter(t => t.id !== tempId));
+                } else if (data) {
+                    setTasks(prev => prev.map(t => t.id === tempId ? data[0] : t));
+                }
+            };
+
+            const updateStatus = async (id, status) => {
+                if (status === 'done') triggerCelebration();
+                setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+                const { error } = await supabaseClient.from('tasks').update({ status }).eq('id', id);
+                if (error) console.error('Update Status Error:', error);
+            };
+
+            const updateTask = async (updatedTask) => {
+                if (updatedTask.status === 'done') triggerCelebration();
+                setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+                setEditTask(null);
+                const { error } = await supabaseClient.from('tasks').update({ title: updatedTask.title, description: updatedTask.description, priority: updatedTask.priority, status: updatedTask.status }).eq('id', updatedTask.id);
+                if (error) console.error('Update Detail Error:', error);
+            };
+
+            const deleteTask = async (id) => {
+                if(!confirm('确定要删除这项任务吗？')) return;
+                setTasks(prev => prev.filter(t => t.id !== id));
+                if(editTask?.id === id) setEditTask(null);
+                const { error } = await supabaseClient.from('tasks').delete().eq('id', id);
+                if (error) console.error('Delete Error:', error);
+            };
+
+            // --- 5. 核心过滤逻辑 (包含全局搜索) ---
+            const currentTasks = useMemo(() => {
+                if (searchQuery.trim()) {
+                    // 全局搜索模式：无视日期，全库匹配
+                    return tasks.filter(t => 
+                        t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                        (t.description && t.description.toLowerCase().includes(searchQuery.toLowerCase()))
+                    );
+                }
+                // 普通日期查看模式
+                return tasks.filter(t => t.date === selectedDate);
+            }, [tasks, selectedDate, searchQuery]);
+
+            const dateGroups = useMemo(() => {
+                const groups = {};
+                tasks.forEach(t => groups[t.date] = (groups[t.date] || 0) + 1);
+                return Object.entries(groups).map(([date, count]) => ({ date, count })).sort((a, b) => b.date.localeCompare(a.date));
+            }, [tasks]);
+
+            const years = useMemo(() => Array.from(new Set(dateGroups.map(g => g.date.split('-')[0]))).sort().reverse(), [dateGroups]);
+            const filteredDates = useMemo(() => {
+                return dateGroups.filter(g => {
+                    const [y, m] = g.date.split('-');
+                    return (!filterYear || y === filterYear) && (!filterMonth || m === filterMonth.padStart(2, '0'));
+                });
+            }, [dateGroups, filterYear, filterMonth]);
+
+            const completion = currentTasks.length ? Math.round((currentTasks.filter(t => t.status === 'done').length / currentTasks.length) * 100) : 0;
+           /* --- 在 App 组件内部，return 语句之前 --- */
+           
+           const exportToMarkdown = () => {
+               // 检查当前是否有任务可导出
+               if (!currentTasks || currentTasks.length === 0) {
+                   alert("当前列表没有可导出的任务");
+                   return;
+               }
+           
+               const dateStr = searchQuery ? `全局搜索_${searchQuery}` : selectedDate;
+               let mdContent = `# ${dateStr} 任务清单\n\n`;
+               mdContent += `> 生成时间：${new Date().toLocaleString()}\n\n`;
+               
+               const categories = {
+                   'todo': '🎯 待处理',
+                   'in_progress': '⚡ 进行中',
+                   'done': '✅ 已完成'
+               };
+           
+               Object.entries(categories).forEach(([status, label]) => {
+                   const filtered = currentTasks.filter(t => t.status === status);
+                   if (filtered.length > 0) {
+                       mdContent += `## ${label}\n`;
+                       filtered.forEach(t => {
+                           const check = status === 'done' ? '[x]' : '[ ]';
+                           const priorityMap = { high: '🔴高', medium: '🟠中', low: '🔵低' };
+                           mdContent += `- ${check} **${t.title}** [${priorityMap[t.priority]}]\n`;
+                           if (t.description) mdContent += `  - 备注: ${t.description}\n`;
+                       });
+                       mdContent += `\n`;
+                   }
+               });
+           
+               try {
+                   const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+                   const url = URL.createObjectURL(blob);
+                   const a = document.createElement('a');
+                   a.href = url;
+                   a.download = `TaskList_${dateStr}.md`;
+                   document.body.appendChild(a);
+                   a.click();
+                   document.body.removeChild(a);
+                   URL.revokeObjectURL(url);
+               } catch (err) {
+                   console.error("导出失败:", err);
+                   alert("导出失败，请重试");
+               }
+           };
+            return (
+                <div className="h-full flex p-5 gap-5 overflow-hidden">
+                    {/* 左侧：时间轴与过滤 */}
+                    <aside className="w-[320px] glass rounded-[40px] flex flex-col shadow-xl animate-slide overflow-hidden">
+                        <div className="p-3 pb-7">
+                            <div className="flex items-center justify-center gap-3 mb-4 group cursor-default">
+                                <div className="w-7 h-7 bg-[#7DCEA0] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20 transition-transform group-hover:rotate-12">
+                                    <Icon name="calendar" size={14} />
+                                </div>
+                                <h1 className="text-1xl font-black tracking-tight text-gray-800">时间轨迹</h1>
+                            </div>
+                            
+                            {/* 新增：搜索框 */}
+                            <div className="relative mb-2">
+                                <Icon name="search" size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <input 
+                                    type="text"
+                                    placeholder="全局搜索任务..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-white/40 border-none rounded-2xl pl-11 pr-4 py-2.5 text-[11px] font-bold placeholder-gray-400 outline-none focus:ring-2 focus:ring-[#FF9F0A]/20 transition-all"
+                                />
+                                {searchQuery && (
+                                    <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-800">
+                                        <Icon name="x" size={14} />
+                                    </button>
+                                )}
+                            </div>
+                            
+                            <div className="flex gap-2 mb-2">
+                                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="flex-1 bg-white/40 border-none rounded-2xl px-3 py-2 text-[10px] font-black uppercase tracking-widest outline-none">
+                                    <option value="">年份</option>
+                                    {years.map(y => <option key={y} value={y}>{y}年</option>)}
+                                </select>
+                                <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="flex-1 bg-white/40 border-none rounded-2xl px-3 py-2 text-[10px] font-black uppercase tracking-widest outline-none">
+                                    <option value="">月份</option>
+                                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}月</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 space-y-2 pb-2">
+                            <button onClick={() => {setSelectedDate(new Date().toISOString().split('T')[0]); setSearchQuery('');}} className={`w-full px-3 py-3 rounded-[25px] text-left transition-all ${selectedDate === new Date().toISOString().split('T')[0] && !searchQuery ? 'bg-[#ffc369] text-white shadow-xl scale-[1.02]' : 'hover:bg-white/40 text-gray-500'}`}>
+                                <p className="text-[8px] font-black uppercase opacity-60 ">Today</p>
+                                <p className="font-bold text-base">今天</p>
+                            </button>
+                            <div className="h-px bg-black/5 mx-6 my-3" />
+                            {filteredDates.map(g => (
+                                <button key={g.date} onClick={() => {setSelectedDate(g.date); setSearchQuery('');}} className={`w-full px-5 py-3 rounded-[25px] text-left flex justify-between items-center transition-all ${selectedDate === g.date && !searchQuery ? 'bg-[#7DCEA0] text-white shadow-xl scale-[1.02]' : 'hover:bg-white/40 text-gray-500'}`}>
+                                    <div>
+                                        <p className="text-[9px] font-black uppercase opacity-60">{new Date(g.date).toLocaleDateString('zh-CN', {weekday: 'short'})}</p>
+                                        <p className="font-bold text-sm">{g.date}</p>
+                                    </div>
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-lg ${selectedDate === g.date && !searchQuery ? 'bg-white/20' : 'bg-black/5'}`}>{g.count}</span>
+                                </button>
+                            ))}
+                        </div>
+						<div className="p-4 mt-auto border-t border-black/5 bg-white/20">
+						        <button 
+						            onClick={exportToMarkdown}
+						            className="w-full py-3 bg-white/40 hover:bg-[#7DCEA0] hover:text-white text-gray-500 hover:shadow-lg rounded-[25px] flex items-center justify-center gap-3 transition-all font-bold text-sm group"
+						        >
+						            <Icon name="download" size={16} className="group-hover:-translate-y-1 transition-transform" />
+						            <span>导出 Markdown</span>
+						        </button>
+						 </div>
+                    </aside>
+
+                    {/* 右侧：主界面 */}
+
+					<div className="flex-1 flex flex-col gap-8 overflow-hidden animate-slide">
+						{/* 上：录入区 - 减小了 p-8 到 p-6, gap-6 到 gap-4 */}
+						<section className="glass rounded-[35px] p-6 flex flex-col gap-4 shadow-sm relative z-0 overflow-hidden">
+							<div className="flex justify-between items-center z-10">
+								<div>
+								    <h2 className="text-gray-800 leading-none tracking-tighter flex items-baseline gap-3">
+								        {searchQuery ? (
+								            <span className="text-3xl font-black">全库搜索</span>
+								        ) : (
+								            <>
+								                <div className="flex items-baseline">
+								                    <span className="text-5xl font-black">{new Date(selectedDate).getMonth() + 1}</span>
+								                    <span className="text-xl font-bold ml-1">月</span>
+								                    <span className="text-5xl font-black ml-2">{new Date(selectedDate).getDate()}</span>
+								                    <span className="text-xl font-bold ml-1">日</span>
+								                </div>
+								                {/* 星期紧随其后 */}
+								                <span className="text-xl font-bold text-gray-400">
+								                    {new Date(selectedDate).toLocaleDateString('zh-CN', {weekday: 'long'})}
+								                </span>
+												<div className="flex items-center gap-2 mt-3">
+												    {/* 待办项移动到最后，并采用低饱和度绿色 */}
+												    <div className="px-3 py-1 bg-[#7DCEA0]/10 border border-[#7DCEA0]/20 rounded-full">
+												        <p className="text-[#5FB385] font-bold uppercase text-[10px] tracking-widest">
+												            {searchQuery ? `找到 ${currentTasks.length} 个结果` : `${currentTasks.length} 项待办轨迹`}
+												        </p>
+												    </div>
+												    <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest ml-1">
+												        {searchQuery ? "SEARCHING" : "TIMELINE"}
+												    </span>
+												</div>
+								            </>
+								        )}
+								    </h2>
+								    
+								    
+								</div>
+
+								{/* 右侧进度：完成率在百分比左边 */}
+								<div className="flex flex-col items-end">
+									<div className="flex items-baseline gap-2 mb-1">
+										<span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">完成率</span>
+										<span className="text-3xl font-black text-[#7DCEA0] leading-none">{completion}%</span>
+									</div>
+									<div className="w-40 h-1.5 bg-black/5 rounded-full overflow-hidden border border-white/50">
+										<div className="h-full bg-[#7DCEA0] transition-all duration-1000" style={{width: `${completion}%`}} />
+									</div>
+								</div>
+							</div>
+							
+							{/* 录入框组件 */}
+							<TaskInput onAdd={addTask} />
+						</section>
+
+						{/* 下：看板区 - 间距从 gap-6 减小到 gap-4 释放更多空间 */}
+						<div className="flex-1 grid grid-cols-3 gap-6 relative z-10 overflow-hidden" style={{ minHeight: '0' }}>
+							<BoardColumn title="待处理" status="todo" color="#FF9F0A" tasks={currentTasks.filter(t => t.status === 'todo')} onUpdate={updateStatus} onDelete={deleteTask} onEdit={setEditTask} />
+							<BoardColumn title="进行中" status="in_progress" color="#007AFF" tasks={currentTasks.filter(t => t.status === 'in_progress')} onUpdate={updateStatus} onDelete={deleteTask} onEdit={setEditTask} />
+							<BoardColumn title="已完成" status="done" color="#34C759" tasks={currentTasks.filter(t => t.status === 'done')} onUpdate={updateStatus} onDelete={deleteTask} onEdit={setEditTask} />
+						</div>
+					</div>
+                    {editTask && <EditModal task={editTask} onSave={updateTask} onClose={() => setEditTask(null)} onDelete={deleteTask} />}
+                </div>
+            );
+        };
+
+        const TaskInput = ({ onAdd }) => {
+            const [title, setTitle] = useState('');
+            const [desc, setDesc] = useState('');
+            const [priority, setPriority] = useState('medium');
+        
+            const handleSubmit = () => { 
+                if(!title.trim()) return; 
+                onAdd(title, desc, priority); 
+                setTitle(''); 
+                setDesc(''); 
+                setPriority('medium'); 
+            };
+        
+            // 定义与卡片圆点一致的颜色映射
+            const priorityColors = {
+                low: 'bg-[#007AFF] text-white shadow-sm',      // 蓝色
+                medium: 'bg-[#FF9F0A] text-white shadow-sm',   // 橙色
+                high: 'bg-[#FF3B30] text-white shadow-sm'      // 红色
+            };
+        
+            return (
+                <div className="bg-white/70 p-3 rounded-[35px] border border-white flex gap-4 shadow-sm focus-within:bg-white transition-all z-10">
+                    <div className="flex-1 px-6 py-2 flex flex-col justify-center">
+                        <input 
+                            className="w-full bg-transparent border-none font-bold text-gray-800 outline-none text-2xl" 
+                            placeholder="今天要做什么？" 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            onKeyDown={e => e.key === 'Enter' && handleSubmit()} 
+                        />
+                        <div className="flex items-center gap-6 mt-2">
+                            <input 
+                                className="flex-1 bg-transparent border-none text-[11px] font-bold text-gray-400 outline-none uppercase tracking-wider" 
+                                placeholder="添加备注..." 
+                                value={desc} 
+                                onChange={e => setDesc(e.target.value)} 
+                                onKeyDown={e => e.key === 'Enter' && handleSubmit()} 
+                            />
+                            <div className="flex gap-1.5 p-1 bg-black/5 rounded-xl border border-white/50">
+                                {['low', 'medium', 'high'].map(p => (
+                                    <button 
+                                        key={p} 
+                                        onClick={() => setPriority(p)} 
+                                        className={`px-4 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${
+                                            priority === p 
+                                            ? priorityColors[p] 
+                                            : 'text-gray-400 hover:text-gray-600'
+                                        }`}
+                                    >
+                                        {p === 'low' ? '低' : p === 'medium' ? '中' : '高'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={handleSubmit} 
+                        className="bg-[#7DCEA0] text-white w-16 h-20 rounded-[26px] flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[#7DCEA0]/30 shrink-0"
+                    >
+                        <Icon name="plus" size={32} />
+                    </button>
+                </div>
+            );
+        };
+
+const BoardColumn = ({ title, status, color, tasks, onUpdate, onDelete, onEdit }) => {
+            const [isOver, setIsOver] = useState(false);
+            const handleDrop = (e) => { e.preventDefault(); const taskId = e.dataTransfer.getData('taskId'); if (taskId) onUpdate(taskId, status); setIsOver(false); };
+            
+			
+			return (
+                <div 
+                        className={`glass rounded-[45px] px-6 pt-5 pb-6 flex flex-col transition-all duration-300 ${isOver ? 'drag-over scale-[1.01]' : ''}`} 
+                        style={{ 
+                            overflow: 'visible', // 必须确保是 visible
+                            position: 'relative', 
+                            height: '100%',
+                            minHeight: '0',
+                            zIndex: isOver ? 40 : 1 // 当拖拽经过时提高列层级
+                        }} 
+                        onDragOver={e => { e.preventDefault(); setIsOver(true); }} 
+                        onDragLeave={() => setIsOver(false)} 
+                        onDrop={handleDrop}
+                    >
+                    {/* 标题区：将 mb-8 缩小为 mb-4，减小了纵向占位 */}
+                    {/* 标题区：设置 z-index 为 0，确保它在最底层 */}
+					<div className="flex items-center justify-between mb-4 px-1 relative z-0">
+						<div className="flex items-center gap-2.5">
+							<div className="w-2 h-2 rounded-full" style={{backgroundColor: color, boxShadow: `0 0 8px ${color}`}} />
+							<h3 className="text-[10px] font-black text-gray-800 uppercase tracking-[0.2em]">{title}</h3>
+						</div>
+						<span className="text-[9px] font-black text-gray-400 bg-white/60 px-2.5 py-0.5 rounded-lg border border-white">{tasks.length}</span>
+					</div>
+								
+								
+                    {/* 重点 2: 只有这个任务列表区域负责滚动，但要允许 X 轴方向溢出显示悬浮卡片 */}
+					{/* 重点修改：任务列表滚动区域 */}
+					<div 
+					    className="flex-1 overflow-y-auto custom-scrollbar pr-2" 
+					    style={{ 
+					        overflowX: 'visible', 
+					        overflowY: 'auto',
+					        // 增加 pt-4 (顶部内边距) 给第一张卡片预留浮动空间
+					        // 使用 -mt-4 (负顶部外边距) 让容器位置保持不变
+					        paddingTop: '20px', 
+					        marginTop: '-20px',
+					        paddingLeft: '10px',
+					        marginLeft: '-10px',
+					        paddingRight: '10px',
+					        marginRight: '-10px',
+					        paddingBottom: '20px' 
+					    }}
+					>
+
+                        {/* 任务卡片：按钮与标题对齐版 */}
+                        {tasks.map(task => (
+                            <div key={task.id} draggable onDragStart={e => e.dataTransfer.setData('taskId', task.id)} onDoubleClick={() => onEdit(task)} className="task-card bg-white/80 px-4 pt-4 pb-3 rounded-[20px] border border-white/80 relative group mb-3">
+                                {/* 头部：标题与功能按钮 */}
+                                <div className="flex justify-between items-center mb-1">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className={`priority-dot priority-${task.priority} shrink-0`} />
+                                        <h4 className="font-bold text-[14px] text-gray-800 leading-tight truncate">
+                                            {task.title}
+                                        </h4>
+                                    </div>
+                                    {/* 按钮组：现在它与上面的标题在同一个 flex 容器内，items-center 保证水平对齐 */}
+                                    <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                                        <button onClick={() => onEdit(task)} className="p-1 text-gray-300 hover:text-gray-600">
+                                            <Icon name="edit" size={12} />
+                                        </button>
+                                        <button onClick={() => onDelete(task.id)} className="p-1 text-gray-300 hover:text-red-500">
+                                            <Icon name="trash" size={12} />
+                                        </button>
+                                    </div>
+                                </div>
+                        
+                                {/* 备注内容 */}
+                                {task.description && (
+                                    <p className="text-[10px] text-gray-400 line-clamp-1 mb-2 font-medium">
+                                        {task.description}
+                                    </p>
+                                )}
+                        
+                                {/* 底部信息栏 */}
+                                <div className="flex items-center justify-between mt-1 pt-2 border-t border-black/5">
+                                    <div className="flex items-center gap-1 text-[9px] font-bold text-gray-300 uppercase tracking-tighter">
+                                        <Icon name="clock" size={10} />
+                                        {(() => {
+                                            const dateObj = new Date(task.created_at || task.date);
+                                            return dateObj.toLocaleString('zh-CN', {
+                                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                                hour12: false
+                                            }).replace(/\//g, '-');
+                                        })()}
+                                    </div>
+                                    {/* 状态切换按钮 */}
+                                    <div className="flex gap-1">
+                                        {status !== 'todo' && <button onClick={() => onUpdate(task.id, 'todo')} className="w-5 h-5 bg-orange-50 text-[#FF9F0A] rounded-lg flex items-center justify-center hover:bg-[#FF9F0A] hover:text-white transition-all"><Icon name="chevronRight" size={10} className="rotate-180" /></button>}
+                                        {status !== 'in_progress' && <button onClick={() => onUpdate(task.id, 'in_progress')} className="w-5 h-5 bg-blue-50 text-[#007AFF] rounded-lg flex items-center justify-center hover:bg-[#007AFF] hover:text-white transition-all"><Icon name="play" size={10} /></button>}
+                                        {status !== 'done' && <button onClick={() => onUpdate(task.id, 'done')} className="w-5 h-5 bg-green-50 text-[#34C759] rounded-lg flex items-center justify-center hover:bg-[#34C759] hover:text-white transition-all"><Icon name="check" size={10} /></button>}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+		
+		
+        const EditModal = ({ task, onSave, onClose, onDelete }) => {
+                    const [title, setTitle] = useState(task.title);
+                    const [desc, setDesc] = useState(task.description);
+                    const [priority, setPriority] = useState(task.priority);
+                    const [status, setStatus] = useState(task.status);
+        
+                    return (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/20 backdrop-blur-md">
+                            <div className="absolute inset-0" onClick={onClose}></div>
+                            <div className="bg-white w-full max-w-md rounded-[50px] shadow-2xl overflow-hidden border border-white transform animate-slide relative z-10">
+                                {/* 头部：缩小了高度 */}
+                                <div className="px-10 py-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+                                    <h3 className="font-black text-[12px] uppercase tracking-[0.2em] text-gray-400">编辑任务详情</h3>
+                                    <button onClick={onClose} className="p-2 text-gray-300 hover:text-gray-800 transition-colors"><Icon name="x" size={24} /></button>
+                                </div>
+                                
+                                {/* 内容区：调整了 pt-4 (顶部间距) 和 space-y-5 (元素间距) */}
+                                <div className="px-10 pb-10 pt-4 space-y-5">
+                                    {/* 标题输入 */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">任务名称</label>
+                                        <div className="group bg-gray-50 rounded-[22px] p-0.5 border-2 border-transparent focus-within:border-[#FF9F0A]/20 focus-within:bg-white focus-within:shadow-md transition-all">
+                                            <input className="w-full bg-transparent p-3.5 font-bold text-gray-800 outline-none text-lg" value={title} onChange={e => setTitle(e.target.value)} />
+                                        </div>
+                                    </div>
+        
+                                    {/* 描述输入 */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">备注内容说明</label>
+                                        <div className="group bg-gray-50 rounded-[22px] p-0.5 border-2 border-transparent focus-within:border-[#FF9F0A]/20 focus-within:bg-white focus-within:shadow-md transition-all">
+                                            <textarea className="w-full bg-transparent p-3.5 text-sm font-medium text-gray-600 outline-none h-28 resize-none" value={desc} onChange={e => setDesc(e.target.value)} />
+                                        </div>
+                                    </div>
+        
+                                    {/* 选择器组 */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">优先级</label>
+                                            <div className="bg-gray-50 rounded-[18px] p-0.5 border-2 border-transparent focus-within:border-[#FF9F0A]/20 focus-within:bg-white transition-all">
+                                                <select className="w-full bg-transparent p-3 text-[11px] font-black uppercase outline-none cursor-pointer" value={priority} onChange={e => setPriority(e.target.value)}>
+                                                    <option value="high">🔴 重要且紧急</option>
+                                                    <option value="medium">🟠 普通事项</option>
+                                                    <option value="low">🔵 稍后处理</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase ml-4 tracking-widest">当前状态</label>
+                                            <div className="bg-gray-50 rounded-[18px] p-0.5 border-2 border-transparent focus-within:border-[#FF9F0A]/20 focus-within:bg-white transition-all">
+                                                <select className="w-full bg-transparent p-3 text-[11px] font-black uppercase outline-none cursor-pointer" value={status} onChange={e => setStatus(e.target.value)}>
+                                                    <option value="todo">待处理</option>
+                                                    <option value="in_progress">进行中</option>
+                                                    <option value="done">已完成</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+        
+                                    {/* 底部按钮 */}
+                                    <div className="pt-2 flex gap-4">
+                                        <button onClick={onClose} className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-[22px] font-black text-[12px] uppercase hover:bg-gray-200 transition-colors">取消</button>
+                                        <button onClick={() => onSave({ ...task, title, description: desc, priority, status })} className="flex-[2] py-4 bg-[#7DCEA0] text-white rounded-[22px] font-black text-[12px] uppercase shadow-xl shadow-[#7DCEA0]/30 hover:scale-[1.02] active:scale-95 transition-all">保存所有更改</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
